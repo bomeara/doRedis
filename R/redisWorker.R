@@ -25,7 +25,7 @@
       if(!is.null(exportenv$worker.init))
         if(is.function(exportenv$worker.init))
           do.call(exportenv$worker.init, list(), envir=globalenv())
-    }, error=function(e) cat(as.character(e), "\n", file=stderr())
+    }, error=function(e) cat(as.character(e), "\n", file=stderr()), finally="print 28"
   )
   assign("expr", expr, .doRedisGlobals)
   assign("exportenv", exportenv, .doRedisGlobals)
@@ -50,11 +50,11 @@
 # Override the function set.seed.worker to roll your own RNG.
         if(exists("set.seed.worker", envir=.doRedisGlobals$exportenv))
           do.call("set.seed.worker", list(0), envir=.doRedisGlobals$exportenv)
-       }, error=function(e) cat(as.character(e), "\n"))
+       }, error=function(e) cat(as.character(e), "\n"),  finally="print 53")
       eval(.doRedisGlobals$expr, envir=.doRedisGlobals$exportenv)
     },
     error=function(e) e
-  )
+  , finally="print 57")
 }
 
 #' Start one or more background R worker processes on the local system.
@@ -107,7 +107,7 @@ startLocalWorkers <- function(n, queue, host="localhost", port=6379,
   conargs <- list(...)
   if(is.null(conargs$timeout)) conargs$timeout <- 3600
   conargs <- paste(paste(names(conargs), conargs, sep="="), collapse=",")
-  
+
   # ensure that we pass multiple queues, if applicable, to each worker
   queue <- sprintf("c(%s)", paste("'", queue, "'", collapse=", ", sep=""))
 
@@ -187,21 +187,21 @@ redisWorker <- function(queue, host="localhost", port=6379,
     log <- file(log, open="w+")
   sink(type="message", file=log)
   assign(".jobID", "0", envir=.doRedisGlobals)
-  
+
   queueLive <- paste(queue, "live", sep=".")
   for(j in queueLive)
     if(!redisExists(j)) redisSet(j, "")
-  
+
   queueCount <- paste(queue,"count",sep=".")
   for (j in queueCount)
-    tryCatch(redisIncr(j),error=function(e) invisible())
+    tryCatch(redisIncr(j),error=function(e) invisible(), finally="print 197")
 
   if(interactive()) cat("Waiting for doRedis jobs.\n")
   k <- 0
   on.exit(.delOK()) # In case we exit this function unexpectedly
   while(k < iter)
   {
-    work <- tryCatch(redisBLPop(queue, timeout=linger), error=function(e) list())
+    work <- tryCatch(redisBLPop(queue, timeout=linger), error=function(e) list(), finally="print 204")
     if(!is.null(globalenv()$.redis.debug) && globalenv()$.redis.debug > 0)
       cat(paste(capture.output(print(work)), collapse="\n"), "\n", file=stderr())
 # Note the apparent fragility here. The worker has downloaded a task but
@@ -277,7 +277,7 @@ redisWorker <- function(queue, host="localhost", port=6379,
       {
 # Simulated error: worker finishes work but does not return a result
         cat("Simuating no return error\n", file=stderr())
-        tryCatch(redisDelete(fttag.start), error=function(e) invisible())
+        tryCatch(redisDelete(fttag.start), error=function(e) invisible(), finally="print 280")
         .delOK()
         assign(".redis.debug", 1, envir=globalenv()) # reset
         next
@@ -288,12 +288,12 @@ redisWorker <- function(queue, host="localhost", port=6379,
         tryCatch(redisClose(), error=function(e) invisible())
         do.call("redisConnect", args=conargs)
         redisLPush(queueOut, result)
-      })
+      }, finally="print 291")
 # Importantly, the worker does not delete his start key until after the
 # result is successfully placed in a Redis queue. And then after that
 # the alive thread is terminated, allowing the corresponding alive key
 # to expire.
-      tryCatch(redisDelete(fttag.start), error=function(e) invisible())
+      tryCatch(redisDelete(fttag.start), error=function(e) invisible(), finally="print 296")
       .delOK()
     }
   }
